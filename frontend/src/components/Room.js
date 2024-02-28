@@ -1,6 +1,88 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useWebSocketContext } from '../WebSocketContext'; // Adjust the path as necessary
+import styled from 'styled-components';
+
+const RoomContainer = styled.div`
+    background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    max-width: 600px;
+    margin: 0 auto;
+`;
+
+const Title = styled.h2`
+    color: #333;
+`;
+
+const Link = styled.p`
+    color: #666;
+    margin-bottom: 20px;
+`;
+
+const Countdown = styled.h3`
+    color: #ff6347;
+`;
+
+const PlayersList = styled.ul`
+    list-style-type: none;
+    padding: 0;
+`;
+
+const PlayerItem = styled.li`
+    color: #009688;
+`;
+
+const Label = styled.label`
+    color: #333;
+    margin-right: 10px;
+`;
+
+const Select = styled.select`
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    margin-right: 10px;
+`;
+
+const Button = styled.button`
+    padding: 10px 20px;
+    background-color: #4caf50;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    margin-top: 10px;
+
+    &:hover {
+        background-color: #45a049;
+    }
+`;
+
+const Feedback = styled.div`
+    margin-top: 20px;
+`;
+
+const FeedbackText = styled.p`
+    color: ${({ correct }) => (correct.includes('incorrect') ? '#f44336' : '#4caf50')};
+`;
+
+const FeedbackScores = styled.ul`
+    list-style-type: none;
+    padding: 0;
+`;
+
+const ScoreItem = styled.li`
+    color: #009688;
+`;
+
+const ButtonsContainer = styled.div`
+    display: flex;
+    flex-direction: column;
+    margin-top: 10px;
+`;
 
 const Room = () => {
     const location = useLocation();
@@ -9,24 +91,19 @@ const Room = () => {
     const [numQuestions, setNumQuestions] = useState(5);
     const [joined, setJoined] = useState(false);
 
-
     useEffect(() => {
         const joinRoom = () => {
-            // Make sure ws is not null before attempting to add event listeners or send messages
             if (ws) {
                 if (ws.readyState === WebSocket.OPEN && !joined) {
                     handleRoomActions('join', { roomName });
-                    setJoined(true)
-                } else {
+                    setJoined(true);
                 }
             }
         };
 
         joinRoom();
-
-
     }, [ws, roomName, handleRoomActions, joined]);
-    // This effect is for debugging purposes to log current room players
+
     useEffect(() => {
         console.log(currentRoomPlayers);
     }, [currentRoomPlayers]);
@@ -40,24 +117,24 @@ const Room = () => {
     };
 
     return (
-        <div>
-            <h2>Room: {roomName}</h2>
-            <p>Invite link: http://localhost:8000/room/{roomName}</p>
-            {gameState.countdown && <h3>Game starts in: {gameState.countdown}</h3>}
+        <RoomContainer>
+            <Title>Room: {roomName}</Title>
+            <Link>Invite link: http://localhost:8000/room/{roomName}</Link>
+            {gameState.countdown && <Countdown>Game starts in: {gameState.countdown}</Countdown>}
             {currentRoomPlayers.length > 0 && (
                 <>
                     <h3>Players in room:</h3>
-                    <ul>
+                    <PlayersList>
                         {currentRoomPlayers.map((player, index) => (
-                            <li key={index}>{player}</li>
+                            <PlayerItem key={index}>{player}</PlayerItem>
                         ))}
-                    </ul>
+                    </PlayersList>
                 </>
             )}
             {!gameState.gameStarted && !gameState.gameOver && (
                 <>
-                    <label htmlFor="numQuestions">Number of Questions:</label>
-                    <select
+                    <Label htmlFor="numQuestions">Number of Questions:</Label>
+                    <Select
                         id="numQuestions"
                         value={numQuestions}
                         onChange={(e) => setNumQuestions(e.target.value)}
@@ -67,8 +144,8 @@ const Room = () => {
                                 {number}
                             </option>
                         ))}
-                    </select>
-                    <button onClick={startGame}>Start Game</button>
+                    </Select>
+                    <Button onClick={startGame}>Start Game</Button>
                 </>
             )}
             {gameState.gameOver && (
@@ -79,7 +156,7 @@ const Room = () => {
                             <li key={index}>{playerName}: {score}</li>
                         ))}
                     </ul>
-                    <select
+                    <Select
                         id="numQuestions"
                         value={numQuestions}
                         onChange={(e) => setNumQuestions(e.target.value)}
@@ -89,32 +166,36 @@ const Room = () => {
                                 {number}
                             </option>
                         ))}
-                    </select>
-                    <button onClick={startGame}>Play Again</button>
+                    </Select>
+                    <Button onClick={startGame}>Play Again</Button>
                 </div>
             )}
             {gameState.gameStarted && gameState.currentQuestion && (
                 <div>
                     <h3>{gameState.currentQuestion.questionText}</h3>
-                    {gameState.currentQuestion.options.map((option, index) => (
-                        <button key={index} onClick={() => sendButtonIndex(index)}>
-                            {option}
-                        </button>
-                    ))}
+                    <ButtonsContainer>
+                        {gameState.currentQuestion.options.map((option, index) => (
+                            <Button key={index} onClick={() => sendButtonIndex(index)}>
+                                {option}
+                            </Button>
+                        ))}
+                    </ButtonsContainer>
                 </div>
             )}
             {!gameState.gameOver && gameState.answerFeedback && (
-                <div>
-                    <p>{`${gameState.answerFeedback.correct}`}</p>
+                <Feedback>
+                    <FeedbackText correct={gameState.answerFeedback.correct}>
+                        {gameState.answerFeedback.correct}
+                    </FeedbackText>
                     <h4>Scores:</h4>
-                    <ul>
+                    <FeedbackScores>
                         {Object.entries(gameState.answerFeedback.scores).map(([playerName, score], index) => (
-                            <li key={index}>{playerName}: {score}</li>
+                            <ScoreItem key={index}>{playerName}: {score}</ScoreItem>
                         ))}
-                    </ul>
-                </div>
+                    </FeedbackScores>
+                </Feedback>
             )}
-        </div>
+        </RoomContainer>
     );
 };
 
