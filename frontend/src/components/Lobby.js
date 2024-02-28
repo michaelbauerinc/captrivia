@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import RoomEntry from './RoomEntry'; // Make sure this path is correct for your project structure
 import { useNavigate } from 'react-router-dom'; // Import useNavigate for programmatic navigation
 import { useWebSocketContext } from '../WebSocketContext'; // Adjust the path as necessary
+import { LobbyContainer, Title, Form, Input, SubmitButton, RoomList } from './style';
 
 const Lobby = () => {
     const [newRoomName, setNewRoomName] = useState('');
@@ -24,18 +25,18 @@ const Lobby = () => {
     };
 
     return (
-        <div>
-            <h2>Lobby</h2>
-            <form onSubmit={handleCreateRoom}>
-                <input
+        <LobbyContainer>
+            <Title>Lobby</Title>
+            <Form onSubmit={handleCreateRoom}>
+                <Input
                     type="text"
                     placeholder="New room name"
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
                 />
-                <button type="submit">Create Room</button>
-            </form>
-            <div>
+                <SubmitButton type="submit">Create Room</SubmitButton>
+            </Form>
+            <RoomList>
                 {rooms && rooms.map((room) => (
                     <RoomEntry
                         key={room.roomName}
@@ -44,8 +45,8 @@ const Lobby = () => {
                     // Note: If setCurrentRoomPlayers isn't used in RoomEntry, you might not need to pass it
                     />
                 ))}
-            </div>
-        </div>
+            </RoomList>
+        </LobbyContainer>
     );
 };
 
