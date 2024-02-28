@@ -17,7 +17,7 @@ services:
       - type: bind
         source: ./backend
         target: /app
-    command: go run .
+    command: go run ./cmd/main.go
 
   frontend:
     build: ./frontend
@@ -31,7 +31,7 @@ services:
         source: node_modules
         target: /app/node_modules
     environment:
-      REACT_APP_BACKEND_URL: http://localhost:8080
+      REACT_APP_BACKEND_URL: localhost:8080
     depends_on:
       - backend
 

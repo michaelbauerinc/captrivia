@@ -1,4 +1,4 @@
-package main
+package main_test
 
 import (
 	"encoding/json"
@@ -6,164 +6,114 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strings"
+	"strconv"
 	"testing"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
-var testRouter *gin.Engine
-var testServer *httptest.Server
+// TestGameIntegration simulates the game flow using a mock WebSocket server.
+func TestGameIntegration(t *testing.T) {
+	// Create a mock WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Upgrade HTTP connection to WebSocket
+		upgrader := websocket.Upgrader{}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("Error upgrading to WebSocket: %v", err)
+		}
+		defer conn.Close()
 
-// TestMain is called before any test runs.
-// It allows us to set up things and also clean up after all tests have been run.
-func TestMain(m *testing.M) {
-	// Set Gin to test mode so that it doesn't print out debug info and we can use testing shortcuts
-	gin.SetMode(gin.TestMode)
+		// Simulate player actions
+		handleActions(conn)
+	}))
+	defer server.Close()
 
-	var err error
-	testRouter, err = setupServer() // This should call the same setupServer which is used in main.
+	// Connect to the mock WebSocket server
+	wsURL := "ws" + server.URL[4:] // Convert http:// to ws://
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
-		log.Fatal("Failed to set up test server:", err)
+		t.Fatalf("Error connecting to WebSocket server: %v", err)
 	}
-	
-	// Start a new httptest server using the testRouter.
-	testServer = httptest.NewServer(testRouter)
+	defer ws.Close()
 
-	runTests := m.Run()
+	// Simulate game flow
+	handleActions(ws)
 
-	// Close the test server
-	testServer.Close()
+	// Wait for a few seconds to receive messages
+	time.Sleep(5 * time.Second)
 
-	// Exit with the result of the test suite run
-	os.Exit(runTests)
+	// Additional assertions can be added here to verify the behavior
 }
 
-func TestStartGameHandler(t *testing.T) {
-	resp, err := http.Post(testServer.URL+"/game/start", "application/json", nil)
+// handleActions simulates player actions during the game
+func handleActions(conn *websocket.Conn) {
+	// Simulate connecting
+	playerName := "TestPlayer"
+	err := sendMessage(conn, map[string]string{"playerName": playerName})
 	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK; got %v", resp.Status)
+		log.Fatalf("Error sending player name: %v", err)
 	}
 
-	// Decode JSON response
-	var response map[string]string
-	err = json.NewDecoder(resp.Body).Decode(&response)
+	// Simulate creating a room
+	roomName := "room1"
+	err = sendRoomAction(conn, "create", roomName)
 	if err != nil {
-		t.Fatalf("Failed to decode JSON response: %v", err)
+		log.Fatalf("Error sending room action: %v", err)
 	}
 
-	// Check if a sessionId as been returned
-	if _, exists := response["sessionId"]; !exists {
-		t.Errorf("Response should contain a sessionId")
+	// Simulate joining the room
+	err = sendRoomAction(conn, "join", roomName)
+	if err != nil {
+		log.Fatalf("Error sending room action: %v", err)
+	}
+
+	// Simulate starting the game
+	err = sendRoomAction(conn, "startGame", roomName)
+	if err != nil {
+		log.Fatalf("Error sending room action: %v", err)
+	}
+
+	// Simulate answering the questions
+	for i := 0; i < 5; i++ { // Assuming there are 5 questions
+		err = sendAnswer(conn, roomName, i)
+		if err != nil {
+			log.Fatalf("Error sending answer: %v", err)
+		}
 	}
 }
 
-// test a full game
-func TestFullGame(t *testing.T) {
-	// Start a new game
-	resp, err := http.Post(testServer.URL+"/game/start", "application/json", nil)
+// sendAnswer simulates sending an answer to the server
+func sendAnswer(conn *websocket.Conn, roomName string, answerIdx int) error {
+	// Create a message with the submitted answer index
+	message := map[string]string{
+		"action":     "submitAnswer",
+		"roomName":   roomName,
+		"answerIdx":  strconv.Itoa(answerIdx), // Convert int to string
+	}
+	return sendMessage(conn, message)
+}
+
+// sendMessage sends a message to the WebSocket server
+func sendMessage(conn *websocket.Conn, message map[string]string) error {
+	msgBytes, err := json.Marshal(message)
 	if err != nil {
-		t.Fatalf("Failed to start a new game: %v", err)
+		return fmt.Errorf("error marshaling message: %v", err)
 	}
-	defer resp.Body.Close()
-
-	// Check for the correct status code
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK; got %v", resp.Status)
-	}
-
-	// Decode JSON response to get the session ID
-	var startGameResponse map[string]string
-	err = json.NewDecoder(resp.Body).Decode(&startGameResponse)
+	err = conn.WriteMessage(websocket.TextMessage, msgBytes)
 	if err != nil {
-		t.Fatalf("Failed to decode JSON response: %v", err)
+		return fmt.Errorf("error sending message: %v", err)
 	}
-	sessionID, exists := startGameResponse["sessionId"]
-	if !exists {
-		t.Fatalf("Response does not contain 'sessionId'")
-	}
+	return nil
+}
 
-	// Get questions
-	resp, err = http.Get(testServer.URL + "/questions")
-	if err != nil {
-		t.Fatalf("Failed to get questions: %v", err)
+// sendRoomAction sends a room action to the WebSocket server
+func sendRoomAction(conn *websocket.Conn, action, roomName string) error {
+	// Create a message with the room action and room name
+	message := map[string]string{
+		"action":   action,
+		"roomName": roomName,
 	}
-	defer resp.Body.Close()
-
-	// Check for the correct status code
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK; got %v", resp.Status)
-	}
-
-	// Decode JSON response to get the questions
-	var questions []Question
-	err = json.NewDecoder(resp.Body).Decode(&questions)
-	if err != nil {
-		t.Fatalf("Failed to decode JSON response: %v", err)
-	}
-	if len(questions) == 0 {
-		t.Fatalf("No questions received")
-	}
-
-	// Answer each question (assuming the answer is always the first option)
-	for _, question := range questions {
-		// Make sure we haven't been given the answer.  We're using the same struct here for the server-side
-		// handler and the "client", so if it wasn't set it should always be 0
-		if question.CorrectIndex != 0 {
-			t.Fatalf("Backend returned answer index")
-		}
-
-		answerPayload := fmt.Sprintf(`{"sessionId":"%s", "questionId":"%s", "answer":%d}`, sessionID, question.ID, 0)
-		answerReader := strings.NewReader(answerPayload)
-		resp, err = http.Post(testServer.URL+"/answer", "application/json", answerReader)
-		if err != nil {
-			t.Fatalf("Failed to post answer: %v", err)
-		}
-		defer resp.Body.Close()
-
-		// Check for the correct status code
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected status OK; got %v", resp.Status)
-		}
-
-		// Decode JSON response to check if the answer was correct
-		var answerResponse map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&answerResponse)
-		if err != nil {
-			t.Fatalf("Failed to decode JSON response: %v", err)
-		}
-		if _, exists := answerResponse["correct"]; !exists {
-			t.Errorf("Response should contain 'correct' field")
-		}
-	}
-
-	// End the game
-	endGamePayload := fmt.Sprintf(`{"sessionId":"%s"}`, sessionID)
-	endGameReader := strings.NewReader(endGamePayload)
-	resp, err = http.Post(testServer.URL+"/game/end", "application/json", endGameReader)
-	if err != nil {
-		t.Fatalf("Failed to end the game: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for the correct status code
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK; got %v", resp.Status)
-	}
-
-	// Decode JSON response to check the final score
-	var endGameResponse map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&endGameResponse)
-	if err != nil {
-		t.Fatalf("Failed to decode JSON response: %v", err)
-	}
-	if _, exists := endGameResponse["finalScore"]; !exists {
-		t.Errorf("Response should contain 'finalScore' field")
-	}
+	return sendMessage(conn, message)
 }

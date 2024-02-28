@@ -1,17 +1,23 @@
- # Start from the latest golang base image
- FROM golang:latest
+# Start from the latest golang base image
+FROM golang:latest
 
- # Set the Current Working Directory inside the container
- WORKDIR /app
+# Set the Current Working Directory inside the container
+WORKDIR /app
 
- # Copy the source code into the container
- COPY . .
+# Copy go mod and sum files
+COPY go.mod go.sum ./
 
- # Build the Go app
- RUN go build -o main .
+# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
+RUN go mod download
 
- # Expose port 8080 to the outside world
- EXPOSE 8080
+# Copy the source code into the container
+COPY . .
 
- # Command to run the executable
- CMD ["./main"]
+# Build the Go app - specify the new location of the main.go file
+RUN go build -o main ./cmd
+
+# Expose port 8080 to the outside world
+EXPOSE 8080
+
+# Command to run the executable
+CMD ["./main"]
