@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestGameIntegration simulates the game flow using a mock WebSocket server.
 func TestGameIntegration(t *testing.T) {
 	// Create a mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
