@@ -32,6 +32,12 @@ type SessionStore struct {
 	Sessions map[string]*PlayerSession
 }
 
+type ClientQuestion struct {
+    ID           string   `json:"id"`
+    QuestionText string   `json:"questionText"`
+    Options      []string `json:"options"`
+}
+
 func (store *SessionStore) CreateSession() string {
 	store.Lock()
 	defer store.Unlock()
@@ -52,16 +58,21 @@ func (store *SessionStore) GetSession(sessionID string) (*PlayerSession, bool) {
 
 func generateSessionID() string {
 	randBytes := make([]byte, 16)
-	rand.Read(randBytes)
+	_, err := rand.Read(randBytes)
+	if err != nil {
+		log.Fatalf("Failed to generate session ID: %v", err)
+	}
 	return fmt.Sprintf("%x", randBytes)
 }
 
 type GameServer struct {
-	Questions []Question
-	Sessions  *SessionStore
+	QuestionsMap map[string]Question
+	Sessions     *SessionStore
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano()) // Initialize random seed once as a global var
+
 	// Setup the server
 	router, err := setupServer()
 	if err != nil {
@@ -108,9 +119,13 @@ func setupServer() (*gin.Engine, error) {
 }
 
 func NewGameServer(questions []Question, store *SessionStore) *GameServer {
+	questionsMap := make(map[string]Question)
+	for _, q := range questions {
+		questionsMap[q.ID] = q
+	}
 	return &GameServer{
-		Questions: questions,
-		Sessions:  store,
+		QuestionsMap: questionsMap,
+		Sessions:     store,
 	}
 }
 
@@ -120,8 +135,19 @@ func (gs *GameServer) StartGameHandler(c *gin.Context) {
 }
 
 func (gs *GameServer) QuestionsHandler(c *gin.Context) {
-	shuffledQuestions := shuffleQuestions(gs.Questions)
-	c.JSON(http.StatusOK, shuffledQuestions[:10])
+    shuffledQuestions := shuffleQuestions(gs.QuestionsMap)
+
+    // Do not send correct answer to client
+    clientQuestions := make([]ClientQuestion, len(shuffledQuestions[:10]))
+    for i, q := range shuffledQuestions[:10] {
+        clientQuestions[i] = ClientQuestion{
+            ID:           q.ID,
+            QuestionText: q.QuestionText,
+            Options:      q.Options,
+        }
+    }
+
+    c.JSON(http.StatusOK, clientQuestions)
 }
 
 func (gs *GameServer) AnswerHandler(c *gin.Context) {
@@ -176,27 +202,19 @@ func (gs *GameServer) EndGameHandler(c *gin.Context) {
 }
 
 func (gs *GameServer) checkAnswer(questionID string, submittedAnswer int) (bool, error) {
-	for _, question := range gs.Questions {
-		if question.ID == questionID {
-			return question.CorrectIndex == submittedAnswer, nil
-		}
+	question, exists := gs.QuestionsMap[questionID]
+	if !exists {
+		return false, errors.New("question not found")
 	}
-	return false, errors.New("question not found")
+	return question.CorrectIndex == submittedAnswer, nil
 }
 
-func shuffleQuestions(questions []Question) []Question {
-	rand.Seed(time.Now().UnixNano())
-	qs := make([]Question, len(questions))
-
-	// Copy the questions manually, instead of with copy(), so that we can remove
-	// the CorrectIndex property
-	for i, q := range questions {
-		qs[i] = Question{ID: q.ID, QuestionText: q.QuestionText, Options: q.Options}
+func shuffleQuestions(questionsMap map[string]Question) []Question {
+	qs := make([]Question, 0, len(questionsMap))
+	for _, q := range questionsMap {
+		qs = append(qs, q)
 	}
-
-	rand.Shuffle(len(qs), func(i, j int) {
-		qs[i], qs[j] = qs[j], qs[i]
-	})
+	rand.Shuffle(len(qs), func(i, j int) { qs[i], qs[j] = qs[j], qs[i] })
 	return qs
 }
 
