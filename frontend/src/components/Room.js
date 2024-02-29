@@ -56,7 +56,7 @@ const Room = () => {
                 Invite link: {inviteLink}
                 <CopyButton onClick={handleCopyLink}>Copy</CopyButton>
             </Link>
-            {gameState.countdown && <Countdown>Game starts in: {gameState.countdown}</Countdown>}
+            {gameState.countdown && <Countdown>{gameState.countdown}</Countdown>}
             {currentRoomPlayers.length > 0 && (
                 <>
                     <h3>Players in room:</h3>
