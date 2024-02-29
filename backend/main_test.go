@@ -1,118 +1,106 @@
-package main_test
+package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/ProlificLabs/captrivia/server"
 )
 
-func TestGameIntegration(t *testing.T) {
-	// Create a mock WebSocket server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Upgrade HTTP connection to WebSocket
-		upgrader := websocket.Upgrader{}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Fatalf("Error upgrading to WebSocket: %v", err)
-		}
-		defer conn.Close()
+func TestWebSocketGameFlow(t *testing.T) {
+    testServer := httptest.NewServer(http.HandlerFunc(server.HandleConnections)) // Adjust to your actual handler
+    defer testServer.Close()
 
-		// Simulate player actions
-		handleActions(conn)
-	}))
-	defer server.Close()
+    wsURL := "ws" + testServer.URL[len("http"):]
+    ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+    if err != nil {
+        t.Fatalf("Dial failed: %v", err)
+    }
+    defer ws.Close()
 
-	// Connect to the mock WebSocket server
-	wsURL := "ws" + server.URL[4:] // Convert http:// to ws://
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Error connecting to WebSocket server: %v", err)
-	}
-	defer ws.Close()
+    playerName := "testPlayer"
+    roomName := "testRoom"
 
-	// Simulate game flow
-	handleActions(ws)
+    t.Run("Connect", func(t *testing.T) {
+        connectPlayer(ws, playerName, t)
+    })
 
-	// Wait for a few seconds to receive messages
-	time.Sleep(5 * time.Second)
+    t.Run("CreateRoom", func(t *testing.T) {
+        createRoom(ws, playerName, roomName, t)
+    })
 
-	// Additional assertions can be added here to verify the behavior
+    t.Run("JoinRoom", func(t *testing.T) {
+        joinRoom(ws, playerName, roomName, t)
+    })
+
+    t.Run("StartGame", func(t *testing.T) {
+        startGame(ws, roomName, t)
+    })
+
+    t.Run("SubmitAnswer", func(t *testing.T) {
+        submitAnswer(ws, playerName, roomName, 0, t) // Assuming 0 is a valid answer index
+    })
 }
 
-// handleActions simulates player actions during the game
-func handleActions(conn *websocket.Conn) {
-	// Simulate connecting
-	playerName := "TestPlayer"
-	err := sendMessage(conn, map[string]string{"playerName": playerName})
-	if err != nil {
-		log.Fatalf("Error sending player name: %v", err)
-	}
-
-	// Simulate creating a room
-	roomName := "room1"
-	err = sendRoomAction(conn, "create", roomName)
-	if err != nil {
-		log.Fatalf("Error sending room action: %v", err)
-	}
-
-	// Simulate joining the room
-	err = sendRoomAction(conn, "join", roomName)
-	if err != nil {
-		log.Fatalf("Error sending room action: %v", err)
-	}
-
-	// Simulate starting the game
-	err = sendRoomAction(conn, "startGame", roomName)
-	if err != nil {
-		log.Fatalf("Error sending room action: %v", err)
-	}
-
-	// Simulate answering the questions
-	for i := 0; i < 5; i++ { // Assuming there are 5 questions
-		err = sendAnswer(conn, roomName, i)
-		if err != nil {
-			log.Fatalf("Error sending answer: %v", err)
-		}
+func connectPlayer(ws *websocket.Conn, playerName string, t *testing.T) {
+	if err := ws.WriteJSON(map[string]string{"type": "connect", "playerName": playerName}); err != nil {
+		t.Fatalf("Failed to connect: %v", err)
 	}
 }
 
-// sendAnswer simulates sending an answer to the server
-func sendAnswer(conn *websocket.Conn, roomName string, answerIdx int) error {
-	// Create a message with the submitted answer index
-	message := map[string]string{
+func createRoom(ws *websocket.Conn, playerName, roomName string, t *testing.T) {
+	actionPayload := map[string]interface{}{
+		"action":     "create",
+		"roomName":   roomName,
+		"playerName": playerName,
+	}
+	if err := ws.WriteJSON(actionPayload); err != nil {
+		t.Fatalf("Failed to create room: %v", err)
+	}
+
+}
+
+func joinRoom(ws *websocket.Conn, playerName, roomName string, t *testing.T) {
+	actionPayload := map[string]interface{}{
+		"action":     "join",
+		"roomName":   roomName,
+		"playerName": playerName,
+	}
+	if err := ws.WriteJSON(actionPayload); err != nil {
+		t.Fatalf("Failed to join room: %v", err)
+	}
+
+}
+
+func startGame(ws *websocket.Conn, roomName string, t *testing.T) {
+	actionPayload := map[string]interface{}{
+		"action":   "startGame",
+		"roomName": roomName,
+		"numQuestions": 1,
+	}
+	if err := ws.WriteJSON(actionPayload); err != nil {
+		t.Fatalf("Failed to start game: %v", err)
+	}
+
+}
+
+func submitAnswer(ws *websocket.Conn, playerName, roomName string, answerIndex int, t *testing.T) {
+	actionPayload := map[string]interface{}{
 		"action":     "submitAnswer",
 		"roomName":   roomName,
-		"answerIdx":  strconv.Itoa(answerIdx), // Convert int to string
+		"playerName": playerName,
+		"answerIdx":  answerIndex,
 	}
-	return sendMessage(conn, message)
+	if err := ws.WriteJSON(actionPayload); err != nil {
+		t.Fatalf("Failed to submit answer: %v", err)
+	}
+
 }
 
-// sendMessage sends a message to the WebSocket server
-func sendMessage(conn *websocket.Conn, message map[string]string) error {
-	msgBytes, err := json.Marshal(message)
-	if err != nil {
-		return fmt.Errorf("error marshaling message: %v", err)
-	}
-	err = conn.WriteMessage(websocket.TextMessage, msgBytes)
-	if err != nil {
-		return fmt.Errorf("error sending message: %v", err)
-	}
-	return nil
-}
 
-// sendRoomAction sends a room action to the WebSocket server
-func sendRoomAction(conn *websocket.Conn, action, roomName string) error {
-	// Create a message with the room action and room name
-	message := map[string]string{
-		"action":   action,
-		"roomName": roomName,
-	}
-	return sendMessage(conn, message)
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }

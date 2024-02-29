@@ -13,7 +13,7 @@ RUN go mod download
 # Copy the source code into the container
 COPY . .
 
-# RUN bash test.sh
+RUN go test -v .
 
 # Build the Go app - specify the new location of the main.go file
 RUN go build -o main ./cmd

@@ -2,7 +2,7 @@ package main
 
 import (
     "log"
-    "github.com/ProlificLabs/captrivia/server" // Adjust the import path as necessary
+    "github.com/ProlificLabs/captrivia/server"
 )
 
 func main() {
