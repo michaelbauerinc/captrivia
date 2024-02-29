@@ -13,6 +13,13 @@ type GameQuestion struct {
     CorrectIndex int      `json:"correctIndex"`
 }
 
+type ClientGameQuestion struct {
+    ID           string   `json:"id"`
+    QuestionText string   `json:"questionText"`
+    Options      []string `json:"options"`
+    // Notice we're omitting the CorrectIndex field
+}
+
 type GameSession struct {
     Questions []GameQuestion
     CurrentQuestionIndex int

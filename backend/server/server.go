@@ -50,6 +50,7 @@ func HandleConnections(w http.ResponseWriter, r *http.Request) {
     defer func() {
         game.RemovePlayerFromAllRooms(player, "")
         game.BroadcastRooms() // Optionally, update room info after player disconnects
+        game.RemovePlayer(player)
     }()
 
     for {

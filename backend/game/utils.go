@@ -123,6 +123,12 @@ func HandleAction(player *Player, msg []byte) {
         startGame(incomingMessage.RoomName, incomingMessage.NumQuestions)
     case "submitAnswer":
         handleGameInput(player, msg)
+    case "leave":
+        RemovePlayerFromAllRooms(player, "")
+        if (rooms[incomingMessage.RoomName] != nil) {
+            broadcastPlayersInRoom(rooms[incomingMessage.RoomName])
+        }
+        
     default:
         log.Printf("Unknown action: %s", incomingMessage.Action)
         sendMessage(player.Conn, "error", fmt.Sprintf("Unknown action: %s", incomingMessage.Action))
@@ -169,23 +175,27 @@ func startGame(roomName string, numQuestions int) {
     sendCurrentQuestion(room)
 }
 
-// Removes player from all rooms they are currently in
 func RemovePlayerFromAllRooms(player *Player, excludeRoomName string) {
+    playerName := player.Name
     roomsMu.Lock()
     defer roomsMu.Unlock()
 
     for roomName, room := range rooms {
-        if _, ok := room.Players[player]; ok && roomName != excludeRoomName {
-            room.mu.Lock()
-            delete(room.Players, player)
-            isEmpty := len(room.Players) == 0
-            room.mu.Unlock()
+        room.mu.Lock()
+        // Need to iterate through players to find by name
+        for player := range room.Players {
+            if player.Name == playerName && roomName != excludeRoomName {
+                delete(room.Players, player)
+                isEmpty := len(room.Players) == 0
 
-            if isEmpty {
-                delete(rooms, roomName)
-                fmt.Printf("Room %s deleted because it is now empty.\n", roomName)
+                if isEmpty {
+                    delete(rooms, roomName)
+                    fmt.Printf("Room %s deleted because it is now empty.\n", roomName)
+                }
+                break // Found and deleted the player, can break the loop
             }
         }
+        room.mu.Unlock()
     }
 }
 
@@ -204,22 +214,22 @@ func handleJoin(player *Player, roomName string) {
 
     room.mu.Lock()
     room.Players[player] = true
-    playerList := make([]string, 0, len(room.Players))
-    for p := range room.Players {
-        playerList = append(playerList, p.Name)
-    }
     room.mu.Unlock()
 
     // Notify all players in the room, including the new player, about the current list of players
-    broadcastPlayersInRoom(room, playerList)
+    broadcastPlayersInRoom(room)
 
     fmt.Printf("Player %s joined room: %s\n", player.Name, roomName)
     BroadcastRooms()
 }
 
 // broadcastPlayersInRoom sends the list of all players in the room to every player in that room
-func broadcastPlayersInRoom(room *Room, playerList []string) {
+func broadcastPlayersInRoom(room *Room) {
     room.mu.Lock()
+    playerList := make([]string, 0, len(room.Players))
+    for p := range room.Players {
+        playerList = append(playerList, p.Name)
+    }
     defer room.mu.Unlock()
 
     for p := range room.Players {
@@ -311,11 +321,19 @@ func sendCurrentQuestion(room *Room) {
     room.mu.Lock()
     defer room.mu.Unlock()
 
-    // Game is not over, send the current question
+    // Fetch the current question from the session
     question := room.Session.Questions[room.Session.CurrentQuestionIndex]
-    fmt.Println(question)
+
+    // Create a ClientGameQuestion instance, omitting the CorrectIndex
+    clientQuestion := ClientGameQuestion{
+        ID:           question.ID,
+        QuestionText: question.QuestionText,
+        Options:      question.Options,
+    }
+
+    // Send the client-friendly question to all players in the room
     for player := range room.Players {
-        sendMessage(player.Conn, "question", question)
+        sendMessage(player.Conn, "question", clientQuestion)
     }
 }
 
