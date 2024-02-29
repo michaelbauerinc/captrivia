@@ -20,6 +20,17 @@ export const WebSocketProvider = ({ playerName, children }) => {
         countdown: null,
     });
 
+    const resetGameState = () => {
+        setGameState({
+            gameStarted: false,
+            gameOver: false,
+            currentQuestion: null,
+            answerFeedback: null,
+            finalScores: {},
+            countdown: null,
+        });
+    };
+
     useEffect(() => {
         if (!playerName) return;
 
@@ -143,6 +154,7 @@ export const WebSocketProvider = ({ playerName, children }) => {
         currentRoomPlayers,
         gameState,
         handleRoomActions,
+        resetGameState,
     };
 
     return (
