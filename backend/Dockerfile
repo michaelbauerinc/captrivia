@@ -13,8 +13,11 @@ RUN go mod download
 # Copy the source code into the container
 COPY . .
 
+# RUN bash test.sh
+
 # Build the Go app - specify the new location of the main.go file
 RUN go build -o main ./cmd
+
 
 # Expose port 8080 to the outside world
 EXPOSE 8080
