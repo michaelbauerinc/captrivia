@@ -1,5 +1,22 @@
 # CapTrivia: Cap Table Trivia Game
 
+
+## Bauer Fork
+
+This fork is a complete re-write of the existing backend and frontend. The backend, including the tests, have been rewritten to utilize a websocket approach. This, in my opinion, is a much more idiomatic way to handle a multiplayer game that is contingeant on latency and conccurent connections. The frontend has been built out to have a lobby system + UI improvements.
+
+
+### Basic Game Flow
+
+1. Any time a player initializes the websocket connection, they will be required to enter a name.
+2. You will then be allowed to join existing game rooms or create one
+3. When you are in a room, it will display the other players present and an invite link
+4. You can then configure the number of questions (length of game) and start
+5. Once the game starts, there is a countdown and the game begins
+6. A player loses 10 points for incorrect answers and gains 10 points for correct answers.
+7. Due to mutex locking on the backend + websocket paradigm, only one player can answer a question correctly per question.
+8. After the game, the final scores are displayed and the game can be replayed.
+
 ## Introduction
 Welcome to CapTrivia, a cap table trivia game developed by Pulley. This project is part of our engineering interview process, designed to assess your coding skills and problem-solving abilities. Currently, CapTrivia is a simple, single-player game. Your challenge is to develop it into a multiplayer experience.
 
