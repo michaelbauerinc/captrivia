@@ -2,32 +2,41 @@ package game
 
 import (
     "encoding/json"
+    "fmt"
+    "github.com/gorilla/websocket"
     "io/ioutil"
     "log"
     "math/rand"
     "sync"
     "time"
-    "fmt"
-    "github.com/gorilla/websocket"
 )
 
-var (
-    rooms   = make(map[string]*Room)
+// GameManager manages game rooms and players.
+type GameManager struct {
+    rooms   map[string]*Room
     roomsMu sync.Mutex
 
-    players   = make(map[*websocket.Conn]*Player)
+    players   map[*websocket.Conn]*Player
     playersMu sync.Mutex
-)
+}
+
+// NewGameManager creates a new instance of GameManager.
+func NewGameManager() *GameManager {
+    return &GameManager{
+        rooms:   make(map[string]*Room),
+        players: make(map[*websocket.Conn]*Player),
+    }
+}
 
 // NewPlayer creates a new Player instance.
-func NewPlayer(name string, conn *websocket.Conn) *Player {
+func (gm *GameManager) NewPlayer(name string, conn *websocket.Conn) *Player {
     return &Player{
         Name: name,
         Conn: conn,
     }
 }
 
-func loadGameQuestions() ([]GameQuestion, error) {
+func (gm *GameManager) loadGameQuestions() ([]GameQuestion, error) {
     fileBytes, err := ioutil.ReadFile("questions.json")
     if err != nil {
         return nil, err
@@ -41,7 +50,7 @@ func loadGameQuestions() ([]GameQuestion, error) {
     return questions, nil
 }
 
-func shuffleQuestions(questions []GameQuestion, numQuestions int) []GameQuestion {
+func (gm *GameManager) shuffleQuestions(questions []GameQuestion, numQuestions int) []GameQuestion {
     rand.Seed(time.Now().UnixNano())
     qs := make([]GameQuestion, len(questions))
     copy(qs, questions)
@@ -54,14 +63,14 @@ func shuffleQuestions(questions []GameQuestion, numQuestions int) []GameQuestion
     return qs[:numQuestions]
 }
 
-func sendMessage(conn *websocket.Conn, messageType string, data interface{}) {
+func (gm *GameManager) sendMessage(conn *websocket.Conn, messageType string, data interface{}) {
     message := OutgoingMessage{Type: messageType, Data: data}
     if err := conn.WriteJSON(message); err != nil {
         log.Printf("Error sending message: %v", err)
     }
 }
 
-func gatherScores(room *Room) map[string]int {
+func (gm *GameManager) gatherScores(room *Room) map[string]int {
     scores := make(map[string]int)
     for player, score := range room.Session.Scores {
         scores[player.Name] = score
@@ -69,12 +78,13 @@ func gatherScores(room *Room) map[string]int {
     return scores
 }
 
-func BroadcastRooms() {
-    roomsMu.Lock()
-    defer roomsMu.Unlock()
+// BroadcastRooms sends the list of rooms to all connected players.
+func (gm *GameManager) BroadcastRooms() {
+    gm.roomsMu.Lock()
+    defer gm.roomsMu.Unlock()
 
     var roomInfo []map[string]interface{}
-    for roomName, room := range rooms {
+    for roomName, room := range gm.rooms {
         players := make([]string, 0, len(room.Players))
         for player := range room.Players {
             players = append(players, player.Name)
@@ -86,28 +96,30 @@ func BroadcastRooms() {
         roomInfo = append(roomInfo, roomData)
     }
 
-    playersMu.Lock()
-    defer playersMu.Unlock()
-    for _, player := range players {
-        sendMessage(player.Conn, "roomsList", roomInfo)
+    gm.playersMu.Lock()
+    defer gm.playersMu.Unlock()
+    for _, player := range gm.players {
+        gm.sendMessage(player.Conn, "roomsList", roomInfo)
     }
 }
 
-// New utility functions to handle player and room management
-func AddPlayer(player *Player) {
-    playersMu.Lock()
-    defer playersMu.Unlock()
-    players[player.Conn] = player
+// AddPlayer adds a new player to the manager.
+func (gm *GameManager) AddPlayer(player *Player) {
+    gm.playersMu.Lock()
+    defer gm.playersMu.Unlock()
+    gm.players[player.Conn] = player
 }
 
-func RemovePlayer(player *Player) {
-    playersMu.Lock()
-    defer playersMu.Unlock()
-    delete(players, player.Conn)
+// RemovePlayer removes a player from the manager.
+func (gm *GameManager) RemovePlayer(player *Player) {
+    gm.playersMu.Lock()
+    defer gm.playersMu.Unlock()
+    delete(gm.players, player.Conn)
     // Optionally handle player removal from rooms here
 }
 
-func HandleAction(player *Player, msg []byte) {
+// HandleAction processes incoming actions from players.
+func (gm *GameManager) HandleAction(player *Player, msg []byte) {
     var incomingMessage IncomingMessage
     if err := json.Unmarshal(msg, &incomingMessage); err != nil {
         log.Printf("Error unmarshaling incoming message: %v", err)
@@ -116,52 +128,52 @@ func HandleAction(player *Player, msg []byte) {
 
     switch incomingMessage.Action {
     case "join":
-        handleJoin(player, incomingMessage.RoomName)
+        gm.handleJoin(player, incomingMessage.RoomName)
     case "create":
-        handleCreate(player, incomingMessage.RoomName)
+        gm.handleCreate(player, incomingMessage.RoomName)
     case "startGame":
-        startGame(incomingMessage.RoomName, incomingMessage.NumQuestions)
+        gm.startGame(incomingMessage.RoomName, incomingMessage.NumQuestions)
     case "submitAnswer":
-        handleGameInput(player, msg)
+        gm.handleGameInput(player, msg)
     case "leave":
-        RemovePlayerFromAllRooms(player, "")
-        if (rooms[incomingMessage.RoomName] != nil) {
-            broadcastPlayersInRoom(rooms[incomingMessage.RoomName])
+        gm.RemovePlayerFromAllRooms(player, "")
+        if gm.rooms[incomingMessage.RoomName] != nil {
+            gm.broadcastPlayersInRoom(gm.rooms[incomingMessage.RoomName])
         }
-        
+
     default:
         log.Printf("Unknown action: %s", incomingMessage.Action)
-        sendMessage(player.Conn, "error", fmt.Sprintf("Unknown action: %s", incomingMessage.Action))
+        gm.sendMessage(player.Conn, "error", fmt.Sprintf("Unknown action: %s", incomingMessage.Action))
     }
 }
 
-func startGame(roomName string, numQuestions int) {
-    roomsMu.Lock()
-    room, exists := rooms[roomName]
+func (gm *GameManager) startGame(roomName string, numQuestions int) {
+    gm.roomsMu.Lock()
+    room, exists := gm.rooms[roomName]
     if !exists {
-        roomsMu.Unlock()
+        gm.roomsMu.Unlock()
         return
     }
-    roomsMu.Unlock()
+    gm.roomsMu.Unlock()
 
     // Countdown before starting the game
     for i := 3; i > 0; i-- {
         room.mu.Lock()
         for player := range room.Players {
             // Assuming sendMessage function can handle sending simple string messages
-            sendMessage(player.Conn, "countdown", fmt.Sprintf("Game starts in %d...", i))
+            gm.sendMessage(player.Conn, "countdown", fmt.Sprintf("Game starts in %d...", i))
         }
         room.mu.Unlock()
         time.Sleep(1 * time.Second) // Wait for 1 second before sending the next countdown message
     }
-    
+
     // Load and shuffle questions
-    questions, err := loadGameQuestions()
+    questions, err := gm.loadGameQuestions()
     if err != nil {
         log.Printf("Error loading questions: %v", err)
         return
     }
-    shuffledQuestions := shuffleQuestions(questions, numQuestions) // Assume this function exists
+    shuffledQuestions := gm.shuffleQuestions(questions, numQuestions) // Assume this function exists
 
     // Initialize the game session
     room.mu.Lock()
@@ -172,24 +184,24 @@ func startGame(roomName string, numQuestions int) {
     room.mu.Unlock()
 
     // Send the first question to all players in the room
-    sendCurrentQuestion(room)
+    gm.sendCurrentQuestion(room)
 }
 
-func RemovePlayerFromAllRooms(player *Player, excludeRoomName string) {
+func (gm *GameManager) RemovePlayerFromAllRooms(player *Player, excludeRoomName string) {
     playerName := player.Name
-    roomsMu.Lock()
-    defer roomsMu.Unlock()
+    gm.roomsMu.Lock()
+    defer gm.roomsMu.Unlock()
 
-    for roomName, room := range rooms {
+    for roomName, room := range gm.rooms {
         room.mu.Lock()
         // Need to iterate through players to find by name
-        for player := range room.Players {
-            if player.Name == playerName && roomName != excludeRoomName {
-                delete(room.Players, player)
+        for p := range room.Players {
+            if p.Name == playerName && roomName != excludeRoomName {
+                delete(room.Players, p)
                 isEmpty := len(room.Players) == 0
 
                 if isEmpty {
-                    delete(rooms, roomName)
+                    delete(gm.rooms, roomName)
                     fmt.Printf("Room %s deleted because it is now empty.\n", roomName)
                 }
                 break // Found and deleted the player, can break the loop
@@ -199,32 +211,32 @@ func RemovePlayerFromAllRooms(player *Player, excludeRoomName string) {
     }
 }
 
-func handleJoin(player *Player, roomName string) {
+func (gm *GameManager) handleJoin(player *Player, roomName string) {
     // Ensure player is removed from any previous rooms
-    RemovePlayerFromAllRooms(player, roomName)
+    gm.RemovePlayerFromAllRooms(player, roomName)
 
-    roomsMu.Lock()
-    room, exists := rooms[roomName]
+    gm.roomsMu.Lock()
+    room, exists := gm.rooms[roomName]
     if !exists {
-        sendMessage(player.Conn, "error", "Room does not exist.")
-        roomsMu.Unlock()
+        gm.sendMessage(player.Conn, "error", "Room does not exist.")
+        gm.roomsMu.Unlock()
         return
     }
-    roomsMu.Unlock()
+    gm.roomsMu.Unlock()
 
     room.mu.Lock()
     room.Players[player] = true
     room.mu.Unlock()
 
     // Notify all players in the room, including the new player, about the current list of players
-    broadcastPlayersInRoom(room)
+    gm.broadcastPlayersInRoom(room)
 
     fmt.Printf("Player %s joined room: %s\n", player.Name, roomName)
-    BroadcastRooms()
+    gm.BroadcastRooms()
 }
 
 // broadcastPlayersInRoom sends the list of all players in the room to every player in that room
-func broadcastPlayersInRoom(room *Room) {
+func (gm *GameManager) broadcastPlayersInRoom(room *Room) {
     room.mu.Lock()
     playerList := make([]string, 0, len(room.Players))
     for p := range room.Players {
@@ -233,39 +245,39 @@ func broadcastPlayersInRoom(room *Room) {
     defer room.mu.Unlock()
 
     for p := range room.Players {
-        sendMessage(p.Conn, "playerListUpdate", playerList)
+        gm.sendMessage(p.Conn, "playerListUpdate", playerList)
     }
 }
 
 // handleCreate creates a new room with the given name
-func handleCreate(player *Player, roomName string) {
-    roomsMu.Lock()
-    _, exists := rooms[roomName]
+func (gm *GameManager) handleCreate(player *Player, roomName string) {
+    gm.roomsMu.Lock()
+    _, exists := gm.rooms[roomName]
     if exists {
-        sendMessage(player.Conn, "error", "Room already exists.")
+        gm.sendMessage(player.Conn, "error", "Room already exists.")
     } else {
-        rooms[roomName] = &Room{
+        gm.rooms[roomName] = &Room{
             Players: make(map[*Player]bool),
             Session: &GameSession{
                 Scores: make(map[*Player]int),
             },
         }
-        sendMessage(player.Conn, "created", fmt.Sprintf("Room created: %s", roomName))
+        gm.sendMessage(player.Conn, "created", fmt.Sprintf("Room created: %s", roomName))
     }
-    roomsMu.Unlock()
-    BroadcastRooms()
+    gm.roomsMu.Unlock()
+    gm.BroadcastRooms()
 }
 
-func handleGameInput(player *Player, msg []byte) {
+func (gm *GameManager) handleGameInput(player *Player, msg []byte) {
     var inputMsg GameInputMessage
     if err := json.Unmarshal(msg, &inputMsg); err != nil {
         log.Printf("Error unmarshaling game input message: %v", err)
         return
     }
 
-    roomsMu.Lock()
-    room, ok := rooms[inputMsg.RoomName]
-    roomsMu.Unlock() // Unlock immediately after fetching the room
+    gm.roomsMu.Lock()
+    room, ok := gm.rooms[inputMsg.RoomName]
+    gm.roomsMu.Unlock() // Unlock immediately after fetching the room
     if !ok {
         log.Println("Room not found")
         return // Room not found
@@ -280,7 +292,7 @@ func handleGameInput(player *Player, msg []byte) {
 
     if room.Session.CurrentQuestionIndex >= len(room.Session.Questions) {
         log.Println("No more questions left to answer")
-        sendGameOver(room)
+        gm.sendGameOver(room)
         room.mu.Unlock()
         return
     }
@@ -296,16 +308,14 @@ func handleGameInput(player *Player, msg []byte) {
     } else {
         room.Session.Scores[player] -= 10
     }
-    
 
     // Check if there are more questions or if the game has ended
     if room.Session.CurrentQuestionIndex >= len(room.Session.Questions) {
-        sendGameOver(room)
+        gm.sendGameOver(room)
     } else {
         for p := range room.Players {
-            // test := string(fmt.Sprintf("%s got the answer %s!", player.Name, string(correct))
             fmt.Println(feedbackString)
-            sendFeedback(room, p, feedbackString) // Send feedback for the current question
+            gm.sendFeedback(room, p, feedbackString) // Send feedback for the current question
         }
         
     }
@@ -313,11 +323,11 @@ func handleGameInput(player *Player, msg []byte) {
     room.mu.Unlock() // Unlock before potentially sending the next question
 
     if room.Session.CurrentQuestionIndex < len(room.Session.Questions) {
-        sendCurrentQuestion(room) // Proceed to send the next question if the game is not over
+        gm.sendCurrentQuestion(room) // Proceed to send the next question if the game is not over
     }
 }
 
-func sendCurrentQuestion(room *Room) {
+func (gm *GameManager) sendCurrentQuestion(room *Room) {
     room.mu.Lock()
     defer room.mu.Unlock()
 
@@ -333,25 +343,25 @@ func sendCurrentQuestion(room *Room) {
 
     // Send the client-friendly question to all players in the room
     for player := range room.Players {
-        sendMessage(player.Conn, "question", clientQuestion)
+        gm.sendMessage(player.Conn, "question", clientQuestion)
     }
 }
 
-func sendFeedback(room *Room, player *Player, correct string) {
+func (gm *GameManager) sendFeedback(room *Room, player *Player, correct string) {
     feedback := map[string]interface{}{
         "correct": correct,
-        "scores":  gatherScores(room),
+        "scores":  gm.gatherScores(room),
     }
 
-    sendMessage(player.Conn, "answerFeedback", feedback)
+    gm.sendMessage(player.Conn, "answerFeedback", feedback)
 }
 
-func sendGameOver(room *Room) {
+func (gm *GameManager) sendGameOver(room *Room) {
     gameOverMessage := map[string]interface{}{
         "message": "Game over! Thanks for playing.",
-        "scores":  gatherScores(room), // Assuming gatherScores is a function that compiles scores
+        "scores":  gm.gatherScores(room),
     }
     for p := range room.Players {
-        sendMessage(p.Conn, "gameOver", gameOverMessage)
+        gm.sendMessage(p.Conn, "gameOver", gameOverMessage)
     }
 }

@@ -29,8 +29,9 @@ const Room = () => {
     }, [ws, roomName, handleRoomActions, joined]);
 
     useEffect(() => {
-        console.log(currentRoomPlayers);
-    }, [currentRoomPlayers]);
+        // console.log(currentRoomPlayers);
+        // console.log(gameState)
+    }, [currentRoomPlayers, gameState]);
 
     const startGame = () => {
         const numQuestionsInt = parseInt(numQuestions);

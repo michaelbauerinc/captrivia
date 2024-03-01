@@ -82,7 +82,7 @@ export const Feedback = styled.div`
 `;
 
 export const FeedbackText = styled.p`
-    color: ${({ correct }) => (correct.includes('incorrect') ? '#f44336' : '#4caf50')};
+    color: ${({ correct = 'default value' }) => (correct.includes('incorrect') ? '#f44336' : '#4caf50')};
 `;
 
 export const FeedbackScores = styled.ul`

@@ -5,20 +5,30 @@ package server
 import (
     "log"
     "net/http"
-	"encoding/json"
+    "encoding/json"
 
     "github.com/gorilla/websocket"
-    "github.com/ProlificLabs/captrivia/game" // Adjust the import path as necessary
+    "github.com/ProlificLabs/captrivia/game"
 )
 
-var upgrader = websocket.Upgrader{
-    CheckOrigin: func(r *http.Request) bool {
-        return true
-    },
+type Server struct {
+    GameManager *game.GameManager
+    Upgrader    websocket.Upgrader
 }
 
-func HandleConnections(w http.ResponseWriter, r *http.Request) {
-    ws, err := upgrader.Upgrade(w, r, nil)
+func NewServer() *Server {
+    return &Server{
+        GameManager: game.NewGameManager(),
+        Upgrader: websocket.Upgrader{
+            CheckOrigin: func(r *http.Request) bool {
+                return true
+            },
+        },
+    }
+}
+
+func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
+    ws, err := s.Upgrader.Upgrade(w, r, nil)
     if err != nil {
         log.Fatal(err)
     }
@@ -40,17 +50,17 @@ func HandleConnections(w http.ResponseWriter, r *http.Request) {
         playerName = string(playerNameBytes)
     }
 
-    player := game.NewPlayer(playerName, ws)
-    game.AddPlayer(player)
+    player := s.GameManager.NewPlayer(playerName, ws)
+    s.GameManager.AddPlayer(player)
 
     log.Printf("Player %s connected.", playerName)
-    game.BroadcastRooms() // Adjusted to not require passing global state
+    s.GameManager.BroadcastRooms()
 
     // Cleanup on disconnect
     defer func() {
-        game.RemovePlayerFromAllRooms(player, "")
-        game.BroadcastRooms() // Optionally, update room info after player disconnects
-        game.RemovePlayer(player)
+        s.GameManager.RemovePlayerFromAllRooms(player, "")
+        s.GameManager.BroadcastRooms() // Optionally, update room info after player disconnects
+        s.GameManager.RemovePlayer(player)
     }()
 
     for {
@@ -60,13 +70,12 @@ func HandleConnections(w http.ResponseWriter, r *http.Request) {
             break
         }
 
-        game.HandleAction(player, msg)
+        s.GameManager.HandleAction(player, msg)
     }
 }
 
-// StartServer starts the HTTP server
-func StartServer() {
-    http.HandleFunc("/ws", HandleConnections)
+func (s *Server) StartServer() {
+    http.HandleFunc("/ws", s.HandleConnections)
 
     log.Println("HTTP server started on :8080")
     err := http.ListenAndServe(":8080", nil)
