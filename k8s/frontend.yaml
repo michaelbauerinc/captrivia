@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captrivia-frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: captrivia-frontend
+  template:
+    metadata:
+      labels:
+        app: captrivia-frontend
+    spec:
+      containers:
+        - name: captrivia-frontend
+          image: <ur-image>
+          ports:
+            - containerPort: 80
+          env:
+            - name: REACT_APP_BACKEND_URL
+              value: <ur-host>
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1Gi
+            limits:
+              cpu: 200m
+              memory: 1Gi
+          imagePullPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: captrivia-frontend-service
+  annotations:
+    cloud.google.com/backend-config: '{"default": "backendconfig-captrivia"}' # Associate the BackendConfig with the Service
+
+spec:
+  type: ClusterIP
+  selector:
+    app: captrivia-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
